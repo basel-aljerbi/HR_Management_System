@@ -11,10 +11,46 @@ from rest_framework.generics import ListAPIView
 from datetime import date, datetime
 from django.db.models import Count
 from employees.permissions import IsHR
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 class CheckInView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_summary="Employee check-in",
+        operation_description=(
+            "Allows an employee to check in once per day. "
+            "Only users with EMPLOYEE role are allowed."
+        ),
+        responses={
+            200: openapi.Response(
+                description="Check-in successful",
+                examples={
+                    "application/json": {
+                        "message": "Check-in successful"
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description="Already checked in",
+                examples={
+                    "application/json": {
+                        "error": "Already checked in"
+                    }
+                }
+            ),
+            403: openapi.Response(
+                description="Only employees can check in",
+                examples={
+                    "application/json": {
+                        "error": "Only employees can check in"
+                    }
+                }
+            ),
+        },
+        security=[{"Bearer": []}]
+    )
     def post(self, request):
         user = request.user
 
@@ -46,6 +82,40 @@ class CheckInView(APIView):
 class CheckOutView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_summary="Employee check-out",
+        operation_description=(
+            "Allows an employee to check out after checking in on the same day. "
+            "Only users with EMPLOYEE role are allowed."
+        ),
+        responses={
+            200: openapi.Response(
+                description="Check-out successful",
+                examples={
+                    "application/json": {
+                        "message": "Check-out successful"
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description="No check-in found or already checked out",
+                examples={
+                    "application/json": {
+                        "error": "No check-in found"
+                    }
+                }
+            ),
+            403: openapi.Response(
+                description="Only employees can check out",
+                examples={
+                    "application/json": {
+                        "error": "Only employees can check out"
+                    }
+                }
+            ),
+        },
+        security=[{"Bearer": []}]
+    )
     def post(self, request):
         user = request.user
 
@@ -80,6 +150,41 @@ class CheckOutView(APIView):
 
         return Response({"message": "Check-out successful"})
 
+@swagger_auto_schema(
+    operation_summary="Attendance history",
+    operation_description=(
+        "Returns attendance records.\n\n"
+        "- EMPLOYEE: can see only their own attendance.\n"
+        "- HR: can see attendance for all employees or filter by employee ID.\n"
+        "- Optional filters: date, employee (HR only)."
+    ),
+    manual_parameters=[
+        openapi.Parameter(
+            name='employee',
+            in_=openapi.IN_QUERY,
+            description="Employee ID (HR only)",
+            type=openapi.TYPE_INTEGER,
+            required=False
+        ),
+        openapi.Parameter(
+            name='date',
+            in_=openapi.IN_QUERY,
+            description="Filter by date (YYYY-MM-DD)",
+            type=openapi.TYPE_STRING,
+            format='date',
+            required=False
+        ),
+    ],
+    responses={
+        200: openapi.Response(
+            description="List of attendance records"
+        ),
+        403: openapi.Response(
+            description="Unauthorized access"
+        ),
+    },
+    security=[{"Bearer": []}]
+)
 class AttendanceHistoryView(ListAPIView):
     serializer_class = AttendanceSerializer
     permission_classes = [IsAuthenticated]
@@ -108,6 +213,62 @@ class AttendanceHistoryView(ListAPIView):
 
         return queryset.order_by('-date')
     
+@swagger_auto_schema(
+    operation_summary="Attendance report",
+    operation_description=(
+        "HR-only endpoint.\n\n"
+        "Generates attendance report for a specific employee "
+        "within a date range.\n\n"
+        "**Required query parameters:**\n"
+        "- employee_id\n"
+        "- from (YYYY-MM-DD)\n"
+        "- to (YYYY-MM-DD)"
+    ),
+    manual_parameters=[
+        openapi.Parameter(
+            name='employee_id',
+            in_=openapi.IN_QUERY,
+            description="Employee ID",
+            type=openapi.TYPE_INTEGER,
+            required=True
+        ),
+        openapi.Parameter(
+            name='from',
+            in_=openapi.IN_QUERY,
+            description="Start date (YYYY-MM-DD)",
+            type=openapi.TYPE_STRING,
+            format='date',
+            required=True
+        ),
+        openapi.Parameter(
+            name='to',
+            in_=openapi.IN_QUERY,
+            description="End date (YYYY-MM-DD)",
+            type=openapi.TYPE_STRING,
+            format='date',
+            required=True
+        ),
+    ],
+    responses={
+        200: openapi.Response(
+            description="Attendance report generated successfully",
+            examples={
+                "application/json": {
+                    "employee": "ahmad",
+                    "from": "2026-02-01",
+                    "to": "2026-02-05",
+                    "total_days": 5,
+                    "present_days": 4,
+                    "absent_days": 1,
+                    "late_days": 2
+                }
+            }
+        ),
+        400: openapi.Response(description="Missing or invalid parameters"),
+        403: openapi.Response(description="HR access only"),
+    },
+    security=[{"Bearer": []}]
+)
 class AttendanceReportView(APIView):
     permission_classes = [IsAuthenticated, IsHR]
 
@@ -135,8 +296,10 @@ class AttendanceReportView(APIView):
             check_in__gt=datetime.strptime("09:00", "%H:%M").time()
         ).count()
 
-        total_days = (datetime.fromisoformat(to_date).date() -
-                      datetime.fromisoformat(from_date).date()).days + 1
+        total_days = (
+            datetime.fromisoformat(to_date).date() -
+            datetime.fromisoformat(from_date).date()
+        ).days + 1
 
         absent_days = total_days - present_days
 
