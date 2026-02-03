@@ -1,9 +1,11 @@
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from django.utils.dateparse import parse_date
 from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
 from .models import Attendance
+from .serializers import AttendanceSerializer
 from employees.models import Employee
 
 class CheckInView(APIView):
@@ -73,3 +75,31 @@ class CheckOutView(APIView):
         attendance.save()
 
         return Response({"message": "Check-out successful"})
+
+class AttendanceHistoryView(ListAPIView):
+    serializer_class = AttendanceSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Attendance.objects.all()
+
+        # Employee
+        if user.role == 'EMPLOYEE':
+            employee = Employee.objects.get(user=user)
+            queryset = queryset.filter(employee=employee)
+
+        # HR 
+        elif user.role == 'HR':
+            employee_id = self.request.query_params.get('employee')
+            if employee_id:
+                queryset = queryset.filter(employee_id=employee_id)
+
+        # Date filters
+        date = self.request.query_params.get('date')
+        if date:
+            parsed_date = parse_date(date)
+            if parsed_date:
+                queryset = queryset.filter(date=parsed_date)
+
+        return queryset.order_by('-date')
