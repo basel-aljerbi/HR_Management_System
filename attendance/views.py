@@ -7,6 +7,10 @@ from django.utils import timezone
 from .models import Attendance
 from .serializers import AttendanceSerializer
 from employees.models import Employee
+from rest_framework.generics import ListAPIView
+from datetime import date, datetime
+from django.db.models import Count
+from employees.permissions import IsHR
 
 class CheckInView(APIView):
     permission_classes = [IsAuthenticated]
@@ -103,3 +107,45 @@ class AttendanceHistoryView(ListAPIView):
                 queryset = queryset.filter(date=parsed_date)
 
         return queryset.order_by('-date')
+    
+class AttendanceReportView(APIView):
+    permission_classes = [IsAuthenticated, IsHR]
+
+    def get(self, request):
+        employee_id = request.query_params.get('employee_id')
+        from_date = request.query_params.get('from')
+        to_date = request.query_params.get('to')
+
+        if not all([employee_id, from_date, to_date]):
+            return Response(
+                {"error": "employee_id, from, to are required"},
+                status=400
+            )
+
+        employee = Employee.objects.get(id=employee_id)
+
+        records = Attendance.objects.filter(
+            employee=employee,
+            date__range=[from_date, to_date]
+        )
+
+        present_days = records.filter(check_in__isnull=False).count()
+
+        late_days = records.filter(
+            check_in__gt=datetime.strptime("09:00", "%H:%M").time()
+        ).count()
+
+        total_days = (datetime.fromisoformat(to_date).date() -
+                      datetime.fromisoformat(from_date).date()).days + 1
+
+        absent_days = total_days - present_days
+
+        return Response({
+            "employee": employee.user.username,
+            "from": from_date,
+            "to": to_date,
+            "total_days": total_days,
+            "present_days": present_days,
+            "absent_days": absent_days,
+            "late_days": late_days
+        })

@@ -1,7 +1,12 @@
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import EmployeeViewSet
+from .views import EmployeeViewSet, MyProfileView
 
 router = DefaultRouter()
-router.register(r'employees', EmployeeViewSet)
+router.register('employees', EmployeeViewSet)
 
-urlpatterns = router.urls
+urlpatterns = [
+    path('employees/me/', MyProfileView.as_view()),
+    path('', include(router.urls)),
+    
+]
